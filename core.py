@@ -35,7 +35,8 @@ class VkTools:
                   'first_name' in info and 'last_name' in info else None,
                   'sex': info.get('sex'),
                   'city': info.get('city')['title'] if info.get('city') is not None else None,
-                  'year': self._bdate_toyear(info.get('bdate'))
+                  'year': self._bdate_toyear(info.get('bdate')),
+                  'user_id': user_id
                   }
         return result
 
@@ -43,10 +44,10 @@ class VkTools:
         try:
             users = self.vkapi.method('users.search',
                                       {
-                                          'count': 10,
+                                          'count': 100,
                                           'offset': offset,
                                           'hometown': params['city'],
-                                          'sex': 1 if params['sex'] == 2 else 2,
+                                          'sex': 2 if params['sex'] == 2 else 1,
                                           'has_photo': True,
                                           'age_from': params['year'] - 3,
                                           'age_to': params['year'] + 3,
@@ -57,7 +58,7 @@ class VkTools:
             print(f'error = {e}')
 
         result = [{'name': item['first_name'] + ' ' + item['last_name'],
-                   'id': item['id']
+                   'id': item['id'], 'hometown': params['city']
                    } for item in users['items'] if item['is_closed'] is False
                   ]
 
@@ -81,12 +82,12 @@ class VkTools:
                    'comments': item['comments']['count']
                    } for item in photos['items']
                   ]
-        '''сортировка лайкам и комментам'''
+        result.sort(key=lambda x: x['likes'] + x['comments'] * 10, reverse=True)
         return result[:3]
 
 
 if __name__ == '__main__':
-    user_id = 789657038
+    user_id = 5183524
     tools = VkTools(acces_token)
     params = tools.get_profile_info(user_id)
     worksheets = tools.search_worksheet(params, 20)

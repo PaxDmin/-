@@ -1,10 +1,13 @@
 # импорты
+
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
 from vk_api.utils import get_random_id
 
 from config import comunity_token, acces_token
 from core import VkTools
+from data_store import engine, data_store_tools
+
 # отправка сообщений
 
 
@@ -13,34 +16,77 @@ class BotInterface():
         self.vk = vk_api.VkApi(token=comunity_token)
         self.longpoll = VkLongPoll(self.vk)
         self.vk_tools = VkTools(acces_token)
+        self.data_store_tools = data_store_tools(engine)
+        self.check_user = data_store_tools(engine)
         self.params = {}
         self.worksheets = []
         self.offset = 0
 
     def message_send(self, user_id, message, attachment=None):
-        self.vk.method('messages.send',
-                       {'user_id': user_id,
-                        'message': message,
-                        'attachment': attachment,
-                        'random_id': get_random_id()}
+        vk.method('messages.send',
+                     {'user_id': user_id,
+                    'message': message,
+                    'attachment': attachment,
+                    'random_id': get_random_id()}
                        )
 
-# обработка событий / получение сообщений
+
 
     def event_handler(self):
         for event in self.longpoll.listen():
             if event.type == VkEventType.MESSAGE_NEW and event.to_me:
-                if event.text.lower() == 'привет':
-                    '''получения данных о пользователе'''
+                if event.text.lower() == 'привет':                    
                     self.params = self.vk_tools.get_profile_info(event.user_id)
                     self.message_send(
                         event.user_id, f'Привет друг, {self.params["name"]}')
+                    
+                    if self.params is not None:
+                        while self.params['city'] == None:
+                            self.message_send(event.user_id, 'У Вас не указан город в профиле, напишите его в чат')
+                            for eve in self.longpoll.listen():
+                                if eve.type == VkEventType.MESSAGE_NEW and eve.to_me:
+                                    self.params = self.vk_tools.get_profile_info(event.user_id)
+                                    self.params['city'] = eve.text
+                                    self.message_send(event.user_id, 'Спасибо!')
+                                    break
+                        while self.params['sex'] == None:
+                            self.message_send(event.user_id, 'Введите 1, если вы женщина. Если вы мужчина, введите 2')
+                            for event_sex in self.longpoll.listen():
+                                if event_sex.type == VkEventType.MESSAGE_NEW and event_sex.to_me:
+                                    try:
+                                        self.params['sex'] = int(event_sex.text)
+                                        self.message_send(event.user_id, 'Спасибо! Теперь знаем, кого искать')
+                                    except:
+                                        self.message_send(event.user_id, 'Неверный формат возраста')
+                                    break
+
+                                
+                        while self.params['year'] == None:
+                            self.message_send(event.user_id, 'Введите ваш возраст числом')
+                            for event_year in self.longpoll.listen():
+                                if event_year.type == VkEventType.MESSAGE_NEW and event_year.to_me:
+                                    try:
+                                        self.params['year'] = int(event_year.text)
+                                        self.message_send(event.user_id, 'Спасибо!')
+                                    except:
+                                        self.message_send(event.user_id, 'Неверный формат даты')
+                                    break
+                        else:
+                            self.message_send(event.user_id, 'Напиши "Поиск", и я найду анкеты')
+
                 elif event.text.lower() == 'поиск':
-                    '''поиска анкет'''
+
+
+                    '''поиск анкет'''
                     self.message_send(
                         event.user_id, 'Начинаем поиск')
                     if self.worksheets:
                         worksheet = self.worksheets.pop()
+
+                        while self.data_store_tools.check_user(event.user_id, worksheet["id"]) is True:
+                            worksheet = self.worksheets.pop()
+                        if self.data_store_tools.check_user(event.user_id, worksheet["id"]) is False:
+                            self.data_store_tools.add_user(event.user_id, worksheet["id"])   
                         photos = self.vk_tools.get_photos(worksheet['id'])
                         photo_string = ''
                         for photo in photos:
@@ -49,8 +95,19 @@ class BotInterface():
                         self.worksheets = self.vk_tools.search_worksheet(
                             self.params, self.offset)
 
-                        worksheet = self.worksheets.pop()
-                        'проверка анкеты в бд в соотвествие с event.user_id'
+                        if len(self.worksheets) == 0:
+                            self.message_send(event.user_id, 'Прости, но я ничего не нашёл')
+                        else:
+                            worksheet = self.worksheets.pop()
+                            self.offset += 50
+                            
+                            while self.data_store_tools.check_user(event.user_id, worksheet["id"]) is True:
+                                worksheet = self.worksheets.pop()
+                            
+                            if self.data_store_tools.check_user(event.user_id, worksheet["id"]) is False:
+                                self.data_store_tools.add_user(event.user_id, worksheet["id"])
+
+                        
 
                         photos = self.vk_tools.get_photos(worksheet['id'])
                         photo_string = ''
@@ -60,11 +117,11 @@ class BotInterface():
 
                     self.message_send(
                         event.user_id,
-                        f'имя: {worksheet["name"]} ссылка: vk.com/{worksheet["id"]}',
+                        f'имя: {worksheet["name"]} ссылка: vk.com/id{worksheet["id"]}, город: {worksheet["hometown"]}',
                         attachment=photo_string
                     )
 
-                    'добавить анкету в бд в соотвествие с event.user_id'
+                    
 
                 elif event.text.lower() == 'пока':
                     self.message_send(
@@ -73,6 +130,9 @@ class BotInterface():
                     self.message_send(
                         event.user_id, 'Неизвестная команда')
 
+
+vk = vk_api.VkApi(token=comunity_token)
+longpoll = VkLongPoll(vk)
 
 if __name__ == '__main__':
     bot_interface = BotInterface(comunity_token, acces_token)
